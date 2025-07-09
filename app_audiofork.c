@@ -854,6 +854,7 @@ static int launch_audiofork_thread(
 		ast_verb(2, "<%s> [AudioFork] (%s) Setting TLS Cert: %s\n", ast_channel_name(chan), audiofork->direction_string, tcert);
 		struct ast_tls_config  *ast_tls_config;
 		audiofork->tls_cfg = ast_calloc(1, sizeof(*ast_tls_config));
+		audiofork->tls_cfg->enabled = 1;
 		audiofork->has_tls = 1;
 		ast_set_flag(&audiofork->tls_cfg->flags, AST_SSL_DONT_VERIFY_SERVER);
 	}
