@@ -609,11 +609,13 @@ static void *audiofork_thread(void *obj)
 
 	/* The audiohook must enter and exit the loop locked */
 	ast_audiohook_lock(&audiofork->audiohook);
-
 	while (audiofork->audiohook.status == AST_AUDIOHOOK_STATUS_RUNNING) {
-		// ast_verb(2, "<%s> [AudioFork] (%s) Reading Audio Hook frame...\n", ast_channel_name(audiofork->autochan->chan), audiofork->direction_string);
-		struct ast_frame *fr = ast_audiohook_read_frame(&audiofork->audiohook, SAMPLES_PER_FRAME, audiofork->direction, format_slin);
+		struct ast_frame *fr = NULL;
+		struct ast_frame *fr_read = NULL;
+		struct ast_frame *fr_write = NULL;
 
+		// ast_verb(2, "<%s> [AudioFork] (%s) Reading Audio Hook frame...\n", ast_channel_name(audiofork->autochan->chan), audiofork->direction_string);
+		fr = ast_audiohook_read_frame_all(&audiofork->audiohook, SAMPLES_PER_FRAME, format_slin, &fr_read, &fr_write);
 		if (!fr) {
 			ast_audiohook_trigger_wait(&audiofork->audiohook);
 
@@ -628,45 +630,57 @@ static void *audiofork_thread(void *obj)
 		/* audiohook lock is not required for the next block.
 		 * Unlock it, but remember to lock it before looping or exiting */
 		ast_audiohook_unlock(&audiofork->audiohook);
-		struct ast_frame *cur;
 
-		//ast_mutex_lock(&audiofork->audiofork_ds->lock);
-		for (cur = fr; cur; cur = AST_LIST_NEXT(cur, frame_list)) {
-			// ast_verb(2, "<%s> sending audio frame to websocket...\n", ast_channel_name(audiofork->autochan->chan));
-			// ast_mutex_lock(&audiofork->audiofork_ds->lock);
+		// XXX in app_mixmonitor.c, they sync following logic with mutex.
+		int i;
+		short read_buf[SAMPLES_PER_FRAME];
+		short write_buf[SAMPLES_PER_FRAME];
+		short stereo_buf[SAMPLES_PER_FRAME * 2];
 
-			if (ast_websocket_write(audiofork->websocket, AST_WEBSOCKET_OPCODE_BINARY, cur->data.ptr, cur->datalen)) {
-
-				ast_log(LOG_ERROR, "<%s> [AudioFork] (%s) Could not write to websocket.  Reconnecting...\n", ast_channel_name(audiofork->autochan->chan), audiofork->direction_string);
-				reconn_status = audiofork_start_reconnecting(audiofork);
-
-				if (reconn_status == 1) {
-					audiofork->websocket = NULL;
-					audiofork->audiohook.status = AST_AUDIOHOOK_STATUS_SHUTDOWN;
-					break;
-				}
-
-				/* re-send the last frame */
-				if (ast_websocket_write(audiofork->websocket, AST_WEBSOCKET_OPCODE_BINARY, cur->data.ptr, cur->datalen)) {
-					ast_log(LOG_ERROR, "<%s> [AudioFork] (%s) Could not re-write to websocket.  Complete Failure.\n", ast_channel_name(audiofork->autochan->chan), audiofork->direction_string);
-
-					audiofork->audiohook.status = AST_AUDIOHOOK_STATUS_SHUTDOWN;
-					break;
-				}
-			}
-
-			frames_sent++;
+		if (fr_read) {
+			memcpy(read_buf, fr_read->data.ptr, sizeof(read_buf));
+		} else {
+			memset(read_buf, 0, sizeof(read_buf));
 		}
 
-		//ast_mutex_unlock(&audiofork->audiofork_ds->lock);
-		//
+		if (fr_write) {
+			memcpy(write_buf, fr_write->data.ptr, sizeof(write_buf));
+		} else {
+			memset(write_buf, 0, sizeof(write_buf));
+		}
+
+		for (i = 0; i < SAMPLES_PER_FRAME; i++) {
+			stereo_buf[i * 2] = read_buf[i];
+			stereo_buf[i * 2 + 1] = write_buf[i];
+		}
+
+		uint64_t stereo_buf_len = sizeof(stereo_buf);
+		if (ast_websocket_write(audiofork->websocket, AST_WEBSOCKET_OPCODE_BINARY, stereo_buf, stereo_buf_len)) {
+
+			ast_log(LOG_ERROR, "<%s> [AudioFork] (%s) Could not write to websocket.  Reconnecting...\n", ast_channel_name(audiofork->autochan->chan), audiofork->direction_string);
+			reconn_status = audiofork_start_reconnecting(audiofork);
+
+			if (reconn_status == 1) {
+				audiofork->websocket = NULL;
+				audiofork->audiohook.status = AST_AUDIOHOOK_STATUS_SHUTDOWN;
+				break;
+			}
+
+			/* re-send the last frame */
+			if (ast_websocket_write(audiofork->websocket, AST_WEBSOCKET_OPCODE_BINARY, stereo_buf, stereo_buf_len)) {
+				ast_log(LOG_ERROR, "<%s> [AudioFork] (%s) Could not re-write to websocket.  Complete Failure.\n", ast_channel_name(audiofork->autochan->chan), audiofork->direction_string);
+
+				audiofork->audiohook.status = AST_AUDIOHOOK_STATUS_SHUTDOWN;
+				break;
+			}
+		}
+		frames_sent += SAMPLES_PER_FRAME;
 
 		/* All done! free it. */
 		if (fr) {
 			ast_frame_free(fr, 0);
+			fr = NULL;
 		}
-
-		fr = NULL;
 
 		ast_audiohook_lock(&audiofork->audiohook);
 	}
