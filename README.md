@@ -1,3 +1,31 @@
+## asterisk-audiofork-with-stereo-streaming
+
+This fork of the `asterisk-audiofork` module facilitates real-time streaming of stereo data to a WebSockets endpoint.  That is, the streaming data assumes a duplex call and streams both sides of the call.
+
+To configure your Asterisk instance for this module, you should encode an AudioFork DialPlan that looks something like this:
+```
+AudioFork("SIP/9007-0000000a", "wss://rtp.minervacq.net/asterisk/stereo?tenantId=49&agentId=john.smith%40acme.com&dnis=42&ani=01234567890&callId=79455208,D(both)T(on)")
+```
+You would need to modify the WSS endpoint here accordingly.  The `T(on)` encrypts the channel under TLS.
+
+When Asterisk starts, it loads the AudioFork module and should print logs that look something like this:
+```
+    -- Executing [4001@localredirect1:37] AudioFork("SIP/9007-0000000a", "wss://rtp.minervacq.net/asterisk/stereo?tenantId=49&agentId=john.smith%40acme.com&dnis=42&ani=01234567890&callId=79455208,D(both)T(on)") in new stack
+[Feb 28 16:02:40] NOTICE[84939][C-00000006]: app_audiofork.c:939 audiofork_exec: AudioFork created with args wss://rtp.minervacq.net/asterisk/stereo?tenantId=49&agentId=john.smith%40acme.com&dnis=42&ani=01234567890&callId=79455208,D(both)T(on)
+  == Parsing TLS result tcert: on
+  == <SIP/9007-0000000a> [AudioFork] (both) Setting Direction
+  == <SIP/9007-0000000a> [AudioFork] Setting reconnection attempts to 5
+  == <SIP/9007-0000000a> [AudioFork] Setting reconnection timeout to 5
+  == <SIP/9007-0000000a> [AudioFork] (both) Setting wsserver: wss://rtp.minervacq.net/asterisk/stereo?tenantId=49&agentId=john.smith%40acme.com&dnis=42&ani=01234567890&callId=79455208
+  == <SIP/9007-0000000a> [AudioFork] (both) Setting TLS Cert: on
+  == <SIP/9007-0000000a> [AudioFork] (both) Completed Setup
+  == <SIP/9007-0000000a> [AudioFork] (both) Added AudioHook Spy
+  == <SIP/9007-0000000a> [AudioFork] (both) Keeping Call-ID Association
+  == <SIP/9007-0000000a> [AudioFork] (both) Connecting to websocket server at: wss://rtp.minervacq.net/asterisk/stereo?tenantId=49&agentId=john.smith%40acme.com&dnis=42&ani=01234567890&callId=79455208
+  == <SIP/9007-0000000a> [AudioFork] (both) Creating to WebSocket server with TLS mode enabled
+```
+
+# Original README follows below...
 ## What is app_audiofork
 
 app_audiofork helps you send audio from Asterisk to a websocket server easily.
